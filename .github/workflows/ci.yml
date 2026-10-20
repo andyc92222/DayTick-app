@@ -1,0 +1,28 @@
+name: DayTick verification
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm, cache-dependency-path: 'package-lock.json'}
+      - uses: astral-sh/setup-uv@v6
+        with: {version: '0.12.17'}
+      - run: uv sync --locked --python 3.12
+      - run: npm ci && npm --prefix frontend ci
+      - run: uv run ruff check shared services scripts tests
+      - run: npm run test:config && npm --prefix frontend test && npm --prefix frontend run build
+      - run: node scripts/setup.mjs
+      - run: docker compose -f compose.yml -f compose.test.yml up -d postgres --wait --wait-timeout 120
+      - run: uv run pytest -q
+        env: {DAYTICK_TEST_NATIVE: '1'}
+      - run: docker compose up --build --wait --wait-timeout 240
+      - run: uv run pytest -q
+        env: {DAYTICK_API_URL: 'http://localhost:8080'}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env: {DAYTICK_E2E_URL: 'http://localhost:8080'}
+      - if: always()
+        run: docker compose down

@@ -1,0 +1,21 @@
+{
+  "name": "daytick-tooling",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "test:e2e": "playwright test",
+    "test:config": "node --test tests/config.test.mjs",
+    "dev:db": "node scripts/local-postgres.mjs",
+    "dev:db:stop": "node scripts/local-postgres.mjs --stop",
+    "test:local-setup": "node --test tests/local-setup.test.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0",
+    "embedded-postgres": "18.4.0-beta.17",
+    "pg": "^8.23.1",
+    "prettier": "^3.6.2",
+    "yaml": "^2.8.1"
+  }
+}

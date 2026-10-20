@@ -1,0 +1,91 @@
+name: daytick
+x-service: &service
+  restart: unless-stopped
+  init: true
+  networks: [backend]
+  depends_on:
+    postgres: {condition: service_healthy}
+  healthcheck:
+    test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"]
+    interval: 15s
+    timeout: 5s
+    start_period: 20s
+    retries: 3
+x-environment: &environment
+  DB_HOST: postgres
+  DB_NAME: ${POSTGRES_DB:-daytick}
+  JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public
+  JWT_ISSUER: ${JWT_ISSUER:-daytick-auth}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-daytick-api}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Australia/Brisbane}
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-daytick}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password, auth_db_password, task_db_password, timer_db_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U postgres -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  auth:
+    <<: *service
+    build: {context: ., dockerfile: services/auth/Dockerfile}
+    environment:
+      <<: *environment
+      AUTH_DB_PASSWORD_FILE: /run/secrets/auth_db_password
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt_private
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+    secrets: [auth_db_password, jwt_public, jwt_private]
+  task:
+    <<: *service
+    build: {context: ., dockerfile: services/task/Dockerfile}
+    environment:
+      <<: *environment
+      TASK_DB_PASSWORD_FILE: /run/secrets/task_db_password
+      INTERNAL_TOKEN_FILE: /run/secrets/internal_token
+      TIMER_URL: http://timer:8000
+    secrets: [task_db_password, jwt_public, internal_token]
+  timer:
+    <<: *service
+    build: {context: ., dockerfile: services/timer/Dockerfile}
+    environment:
+      <<: *environment
+      TIMER_DB_PASSWORD_FILE: /run/secrets/timer_db_password
+      INTERNAL_TOKEN_FILE: /run/secrets/internal_token
+      TASK_URL: http://task:8000
+    secrets: [timer_db_password, jwt_public, internal_token]
+  frontend:
+    build: {context: ., dockerfile: frontend/Dockerfile}
+    restart: unless-stopped
+    networks: [backend]
+  gateway:
+    build: {context: ., dockerfile: infrastructure/nginx/Dockerfile}
+    restart: unless-stopped
+    ports: ['${HTTP_PORT:-8080}:8080']
+    networks: [backend]
+    depends_on:
+      auth: {condition: service_healthy}
+      task: {condition: service_healthy}
+      timer: {condition: service_healthy}
+      frontend: {condition: service_healthy}
+networks:
+  backend:
+volumes:
+  postgres_data:
+secrets:
+  postgres_password: {file: ./.secrets/postgres_password}
+  auth_db_password: {file: ./.secrets/auth_db_password}
+  task_db_password: {file: ./.secrets/task_db_password}
+  timer_db_password: {file: ./.secrets/timer_db_password}
+  jwt_private: {file: ./.secrets/jwt_private}
+  jwt_public: {file: ./.secrets/jwt_public}
+  internal_token: {file: ./.secrets/internal_token}
