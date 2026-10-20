@@ -201,3 +201,67 @@ python3() { echo 'nonzero disk data' >&2; return 1; }
     }
   },
 );
+
+test(
+  "release staging lets the SSH user enter before sudo without granting write or secret access",
+  { skip: !existsSync(bash) },
+  () => {
+    const setup = readFileSync("scripts/setup-swarm.sh", "utf8");
+    const staging = setup
+      .split(/\r?\n/)
+      .find((line) => line.startsWith('ssh_node daytick-1 "sudo mkdir'));
+    assert.ok(
+      staging,
+      "Find the actual staging command, rather than test a copied implementation",
+    );
+    const harness = `
+remote=/opt/daytick-tutor-project
+mode=700
+owner=root:root
+id() { echo caller-group; }
+sudo() {
+  [[ "\${!#}" == "$remote" ]] || { echo 'unexpected or recursive permission change' >&2; return 1; }
+  case "$1" in
+    mkdir) [[ "$2" == -p ]] ;;
+    chown) [[ "$#" == 3 ]]; owner=$2 ;;
+    chmod) [[ "$#" == 3 ]]; mode=$2 ;;
+    *) return 1 ;;
+  esac
+}
+ssh_node() {
+  shift
+  id() { [[ "$1" == -gn ]]; echo vm-ssh-group; }
+  eval "$*"
+}
+`;
+    // Model Unix traversal here because Windows/Git Bash does not enforce Unix modes.
+    const check = `
+[[ "$owner" == root:vm-ssh-group ]] || { echo 'SSH group was not resolved on the VM' >&2; exit 1; }
+[[ "$mode" == 750 ]] || { echo 'SSH user cannot enter the release directory securely' >&2; exit 1; }
+echo SSH_CD_ALLOWED
+`;
+    const fixed = run(harness + staging + check);
+    assert.equal(fixed.status, 0, fixed.stderr);
+    assert.match(fixed.stdout, /SSH_CD_ALLOWED/);
+    const old = run(
+      harness +
+        "ssh_node daytick-1 \"sudo mkdir -p '$remote'; sudo chmod 700 '$remote'\"\n" +
+        check,
+    );
+    assert.notEqual(
+      old.status,
+      0,
+      "Regression must reproduce the original root-only failure",
+    );
+    assert.ok(!old.stdout.includes("SSH_CD_ALLOWED"));
+    assert.ok(
+      setup.indexOf(staging) <
+        setup.indexOf("bash scripts/gcp-prepare-disk.sh"),
+    );
+    assert.match(
+      readFileSync("scripts/gcp-release.sh", "utf8"),
+      /chmod 700 \.secrets/,
+    );
+    assert.match(readFileSync("scripts/gcp-release.sh", "utf8"), /chmod 600/);
+  },
+);

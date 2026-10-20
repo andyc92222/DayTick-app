@@ -19,7 +19,10 @@ for n in 1 2 3; do
   [[ "$ready" == true ]] || fail "Docker not ready on $node. Check startup logs: sudo journalctl -u google-startup-scripts.service"
 done
 # Only allowlisted source files are staged. Never upload the local .env, .secrets or DB.
-ssh_node daytick-1 "sudo mkdir -p '$remote'; sudo chmod 700 '$remote'"
+# The SSH shell must cd here before invoking root-only helpers. Keep root as
+# owner and grant this VM's SSH primary group read/traverse, never write access.
+# Do not recurse: .secrets stays root-only (700 directory / 600 files).
+ssh_node daytick-1 "sudo mkdir -p '$remote'; sudo chown root:\"\$(id -gn)\" '$remote'; sudo chmod 750 '$remote'"
 tar --exclude=node_modules --exclude=dist --exclude=__pycache__ --exclude=.pytest_cache \
   --exclude=.env --exclude='.env.*' --exclude=.secrets --exclude=.local --exclude=.venv \
   -czf - frontend services shared infrastructure scripts requirements.lock \
