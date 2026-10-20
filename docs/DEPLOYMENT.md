@@ -67,6 +67,12 @@ Registry authentication uses a short-lived access token from the VM's attached s
 
 ## Access and verification
 
+### Resuming a partially initialized Swarm
+
+An existing sole manager on `daytick-1`, with `daytick-2` and `daytick-3` still inactive, is a supported rerun state. Update the whole checkout (including `scripts/gcp-validate-swarm.py`) and rerun `bash scripts/setup-swarm.sh --project-id=YOUR_PROJECT_ID`. No `swarm leave`, reset, force-new-cluster or disk recovery is needed. Initialization is skipped for an active VM 1; only inactive VMs join as managers.
+
+Membership checks use Docker node IDs read over SSH from the actual VMs, their internal addresses and expected short/global/zonal GCE hostnames. Full hostnames such as `daytick-1.australia-southeast1-b.c.YOUR_PROJECT_ID.internal` are accepted. Active VMs in another cluster, stale/extra members, workers and incorrect DB labels are refused. Final validation requires exactly the three expected ready, active managers; labels target verified node IDs rather than short names. A fully joined cluster is validated and reused without rejoining. The existing disk mount guard and data remain in place.
+
 ```bash
 gcloud --project=YOUR_PROJECT_ID compute start-iap-tunnel daytick-1 8080 --zone=australia-southeast1-b --local-host-port=localhost:8080
 ```

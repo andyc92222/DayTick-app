@@ -45,11 +45,29 @@ case "$state" in
   *) fail "Unexpected Swarm state on daytick-1: $state" ;;
 esac
 cluster=$(ssh_node daytick-1 "sudo docker info --format '{{.Swarm.Cluster.ID}}'")
-ssh_node daytick-1 'sudo docker node inspect $(sudo docker node ls -q)' | python3 -c '
-import json,sys
-nodes=json.load(sys.stdin)
-assert len(nodes)<=3 and all(n["Description"]["Hostname"] in {"daytick-1","daytick-2","daytick-3"} for n in nodes), "Unexpected cluster members; refusing to join"
-'
+[[ -n "$cluster" && "$cluster" != '<no value>' ]] || fail 'VM 1 has no readable manager cluster ID.'
+# Read identities from each actual VM, rather than trusting hostname prefixes in
+# the manager inventory. Check every active VM before joining any inactive VM.
+node_ids=()
+for n in 1 2 3; do
+  node="daytick-$n"
+  state=$(ssh_node "$node" "sudo docker info --format '{{.Swarm.LocalNodeState}}'")
+  case "$state" in
+    inactive) node_ids+=("") ;;
+    active)
+      other=$(ssh_node "$node" "sudo docker info --format '{{.Swarm.Cluster.ID}}'")
+      [[ "$other" == "$cluster" ]] || fail "$node belongs to another Swarm or is not a manager; refusing to modify it."
+      ssh_node "$node" 'sudo docker node ls >/dev/null'
+      node_ids+=("$(ssh_node "$node" "sudo docker info --format '{{.Swarm.NodeID}}'")")
+      ;;
+    *) fail "Unexpected Swarm state on $node: $state" ;;
+  esac
+done
+validate_members() {
+  ssh_node daytick-1 'sudo docker node inspect $(sudo docker node ls -q)' \
+    | python3 scripts/gcp-validate-swarm.py "$1" "$PROJECT_ID" "$ZONE" "${ips[@]}" "${node_ids[@]}"
+}
+validate_members partial
 for n in 2 3; do
   node="daytick-$n"
   state=$(ssh_node "$node" "sudo docker info --format '{{.Swarm.LocalNodeState}}'")
@@ -62,19 +80,14 @@ for n in 2 3; do
     [[ "$other" == "$cluster" ]] || fail "$node belongs to another Swarm; refusing to modify it."
   else fail "Unexpected Swarm state on $node: $state"; fi
 done
-# Refuse unexpected members/worker roles and DB labels before touching placement.
-ssh_node daytick-1 'sudo docker node inspect $(sudo docker node ls -q)' | python3 -c '
-import json,sys
-nodes=json.load(sys.stdin)
-assert len(nodes)==3, "Expected exactly three Swarm nodes"
-assert {n["Description"]["Hostname"] for n in nodes}=={"daytick-1","daytick-2","daytick-3"}
-for n in nodes:
- assert n["Spec"]["Role"]=="manager" and n["Status"]["State"]=="ready"
- assert n["Spec"]["Availability"]=="active", "Restore drained node explicitly"
- if n["Spec"].get("Labels",{}).get("daytick.db")=="true": assert n["Description"]["Hostname"]=="daytick-1", "Database label on wrong node"
-'
-for n in 1 2 3; do ssh_node daytick-1 "sudo docker node update --label-add daytick.host=daytick-$n daytick-$n >/dev/null"; done
-ssh_node daytick-1 'sudo /usr/local/sbin/daytick-check-postgres-mount && sudo docker node update --label-add daytick.db=true daytick-1 >/dev/null'
+# Refresh IDs after joins and validate the complete membership before labeling.
+for n in 1 2 3; do
+  node_ids[$((n-1))]=$(ssh_node "daytick-$n" "sudo docker info --format '{{.Swarm.NodeID}}'")
+done
+validate_members final
+# Docker node names can be full GCE DNS hostnames. Always target verified IDs.
+for n in 1 2 3; do ssh_node daytick-1 "sudo docker node update --label-add daytick.host=daytick-$n '${node_ids[$((n-1))]}' >/dev/null"; done
+ssh_node daytick-1 "sudo /usr/local/sbin/daytick-check-postgres-mount && sudo docker node update --label-add daytick.db=true '${node_ids[0]}' >/dev/null"
 CREATED+=(three-manager-swarm-and-labels)
 if [[ -z "$TAG" ]]; then
   TAG=$(ssh_node daytick-1 "sudo cat '$remote/.release-tag' 2>/dev/null || true")

@@ -265,3 +265,60 @@ echo SSH_CD_ALLOWED
     assert.match(readFileSync("scripts/gcp-release.sh", "utf8"), /chmod 600/);
   },
 );
+
+test(
+  "Swarm orchestration resumes the sole manager and reruns without rejoining or resetting",
+  { skip: !existsSync(bash) },
+  () => {
+    const setup = readFileSync("scripts/setup-swarm.sh", "utf8");
+    const section = setup.slice(
+      setup.indexOf("# Initialize only inactive nodes."),
+      setup.indexOf("CREATED+=(three-manager-swarm-and-labels)"),
+    );
+    assert.ok(section.includes("validate_members partial"));
+    assert.ok(section.includes("validate_members final"));
+    for (const joined of [false, true]) {
+      const harness = `
+PROJECT_ID=tutor-project
+ips=(10.42.0.2 10.42.0.3 10.42.0.4)
+state_dir=$(mktemp -d)
+echo active > "$state_dir/daytick-1"
+echo ${joined ? "active" : "inactive"} > "$state_dir/daytick-2"
+echo ${joined ? "active" : "inactive"} > "$state_dir/daytick-3"
+: > "$state_dir/joins"
+: > "$state_dir/validation"
+ssh_node() {
+  local node=$1 cmd=$2
+  case "$cmd" in
+    *LocalNodeState*) cat "$state_dir/$node" ;;
+    *Cluster.ID*) echo cluster1 ;;
+    *NodeID*) echo "id\${node#daytick-}" ;;
+    *join-token*) echo mock-token ;;
+    *'swarm join --token'*) read -r token; echo active > "$state_dir/$node"; echo "$node" >> "$state_dir/joins" ;;
+    *'node inspect'*) echo '[]' ;;
+    *'node update'*) echo "$cmd" >> "$state_dir/validation" ;;
+    *'node ls'*) true ;;
+    *) echo "Unexpected mutation: $cmd" >&2; return 1 ;;
+  esac
+}
+# Validator itself has independent Python tests with real GCE hostname fixtures.
+python3() { cat >/dev/null; echo "$*" >> "$state_dir/validation"; }
+`;
+      const result = run(
+        harness +
+          section +
+          '\necho JOINED; cat "$state_dir/joins"; echo VALIDATED; cat "$state_dir/validation"',
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const joins = result.stdout
+        .split("JOINED\n")[1]
+        .split("VALIDATED\n")[0]
+        .trim();
+      assert.equal(joins, joined ? "" : "daytick-2\ndaytick-3");
+      assert.match(result.stdout, /gcp-validate-swarm.py partial/);
+      assert.match(result.stdout, /gcp-validate-swarm.py final/);
+      assert.match(result.stdout, /daytick.host=daytick-2 'id2'/);
+      assert.match(result.stdout, /daytick.db=true 'id1'/);
+    }
+  },
+);
