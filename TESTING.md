@@ -1,13 +1,5 @@
 # DayTick verification record
 
-## CI import-path correction — 21 October 2026
-
-The GitHub Actions error `ModuleNotFoundError: No module named 'scripts'` was reproduced locally using the pytest console entry point. Added `pythonpath = ["."]` to `[tool.pytest.ini_options]` in `pyproject.toml` so pytest can import repository-local packages before loading `tests/conftest.py`.
-
-After the change, console-entry-point collection found **42 tests**, and the offline run reported **25 passed, 17 skipped**. Skips require live API/database services or native process control. Both commands used `-p no:cacheprovider` to avoid an existing local pytest-cache permission issue. GitHub Actions and Docker-backed integration tests have not been rerun for this correction; these local results do not establish a passing CI run. The application runtime and cloud resources were unchanged.
-
-## Earlier verification
-
 Date: **18 October 2026**, Australia/Brisbane.
 
 ## Environment
