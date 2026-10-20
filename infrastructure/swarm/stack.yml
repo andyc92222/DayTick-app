@@ -11,7 +11,7 @@ x-deploy: &deploy
   endpoint_mode: vip
   placement:
     preferences:
-      - spread: node.id
+      - spread: node.labels.daytick.host
   restart_policy:
     condition: any
     delay: 5s

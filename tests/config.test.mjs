@@ -43,6 +43,9 @@ test("Swarm uses replicated, health-checked app images and stop-first single dat
     assert.equal(service.deploy.replicas, 2);
     assert.equal(service.deploy.update_config.failure_action, "rollback");
     assert.equal(service.deploy.update_config.parallelism, 1);
+    assert.deepEqual(service.deploy.placement.preferences, [
+      { spread: "node.labels.daytick.host" },
+    ]);
     assert.ok(!service.build, "Swarm does not build images");
   }
   assert.equal(stack.services.postgres.deploy.replicas, 1);

@@ -6,7 +6,7 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "test:e2e": "playwright test",
-    "test:config": "node --test tests/config.test.mjs",
+    "test:config": "node --test tests/config.test.mjs tests/deployment.test.mjs tests/cloud-setup.test.mjs",
     "dev:db": "node scripts/local-postgres.mjs",
     "dev:db:stop": "node scripts/local-postgres.mjs --stop",
     "test:local-setup": "node --test tests/local-setup.test.mjs"
