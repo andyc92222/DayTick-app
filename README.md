@@ -7,31 +7,7 @@ DayTick is a personal daily countdown planner: register, keep private tasks, and
 - **Local:** Git, Node.js 24, and Docker Desktop (Linux containers) or Docker Engine with Compose v2. Python and npm package installation are not needed for the Docker setup.
 - **Google Cloud:** a project with billing enabled and sufficient quota, Google Cloud Shell, and permissions to manage Compute Engine, networks/firewalls, service accounts, API enablement and Artifact Registry. You also need IAP tunnel access, SSH/sudo access and permission to use the VM service account. See [deployment details](docs/DEPLOYMENT.md).
 
-## Run locally
 
-Clone this repository using its GitHub **Code → HTTPS** URL, then enter the checkout:
-
-```sh
-git clone YOUR_REPOSITORY_HTTPS_URL daytick
-cd daytick
-node scripts/setup.mjs
-```
-
-Setup creates `.env` and random credentials in `.secrets/`, preserving existing files. Use `.env.example` as the configuration reference; edit `.env` if needed (default timezone: `Australia/Brisbane`). Keep secrets alongside your database and never commit them.
-
-```sh
-docker compose config --quiet
-docker compose up --build --wait --wait-timeout 240
-```
-
-Open **http://localhost:8080** and register an account. If you changed `HTTP_PORT` in `.env`, use that port.
-
-```sh
-# Stop containers; preserve database data.
-docker compose down
-```
-
-Do not use `down -v` unless you intend to delete the local database. For native Windows development, API details and testing, see [the development guide](docs/DEVELOPMENT.md).
 
 ## Deploy to Google Cloud
 
